@@ -1,0 +1,29 @@
+version: "3.9"
+services:
+  sampling-api:
+    build: .
+    container_name: sampling_api
+    command: ["python", "-m", "uvicorn", "api.server:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - /mnt:/mnt:ro
+      - ${HOME}:${HOME}
+    environment:
+      - PYTHONUNBUFFERED=1
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - HOST_HOME=${HOME}
+    restart: unless-stopped
+  sampling-web:
+    image: node:20-alpine
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "3050:3050"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./web:/app
+    depends_on:
+      - sampling-api
