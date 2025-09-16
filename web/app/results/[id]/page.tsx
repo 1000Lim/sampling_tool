@@ -90,10 +90,6 @@ export default function TaskDetail({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-6xl p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Task {params.id}</h1>
-        <Link className="btn btn-secondary" href="/results">← Back to Tasks</Link>
-      </div>
 
       {!exportDir && (
         <div className="card">Export directory missing.</div>

@@ -198,3 +198,6 @@ bash run_sampling.sh -p /mnt/surf/2025-09-15 -t surf -s 10 --cam-num 5 --cam-inf
 # 실행 권한 부여
 chmod +x run_sampling.sh
 ```
+
+## Docs
+[Sampling Tool (CLI, Web)](https://stradvision.atlassian.net/wiki/x/XoA0WQs)
