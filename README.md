@@ -132,3 +132,80 @@ Set `NEXT_PUBLIC_API_URL=http://localhost:8000` if you run web outside compose.
 ## License
 
 Internal project. All rights reserved.
+
+---
+
+## Helper script: run sampling via Docker Compose
+
+`run_sampling.sh` 예시 스크립트(옵션 래핑):
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+PROJECT="sampling"
+PATH_ARG=""
+DATA_TYPE=""
+STRIDE="1"
+EXPORT_ARG=""
+CAM_NUM=""
+CAM_INFO=""
+COMPRESS=0
+DELETE=0
+OVERLAY_EVERY="0"
+OVERLAY_INTENSITY=0
+OVERLAY_POINT_RADIUS="2"
+OVERLAY_ALPHA="1.0"
+
+usage(){
+  echo "Usage: $0 -p <path> -t <surf|valeo> [-s N] [-e DIR] [--cam-num N --cam-info FILE] [--compress --delete] [--overlay-every N --overlay-intensity --overlay-point-radius N --overlay-alpha F] [--project NAME]"; exit 1;
+}
+
+while [[ $# -gt 0 ]]; do case "$1" in
+  -p|--path) PATH_ARG="$2"; shift 2;;
+  -t|--data-type) DATA_TYPE="$2"; shift 2;;
+  -s|--stride) STRIDE="$2"; shift 2;;
+  -e|--export) EXPORT_ARG="$2"; shift 2;;
+  --cam-num) CAM_NUM="$2"; shift 2;;
+  --cam-info) CAM_INFO="$2"; shift 2;;
+  -z|--compress) COMPRESS=1; shift;;
+  -d|--delete) DELETE=1; shift;;
+  --overlay-every) OVERLAY_EVERY="$2"; shift 2;;
+  --overlay-intensity) OVERLAY_INTENSITY=1; shift;;
+  --overlay-point-radius) OVERLAY_POINT_RADIUS="$2"; shift 2;;
+  --overlay-alpha) OVERLAY_ALPHA="$2"; shift 2;;
+  --project) PROJECT="$2"; shift 2;;
+  -h|--help) usage;;
+  *) echo "Unknown arg: $1"; usage;;
+esac; done
+
+[[ -z "$PATH_ARG" || -z "$DATA_TYPE" ]] && usage
+
+CMD=(docker compose -p "$PROJECT" run --rm sampling-api
+  python sampling_tool.py
+  --path "$PATH_ARG" --data-type "$DATA_TYPE" --stride "$STRIDE"
+  --overlay-every "$OVERLAY_EVERY" --overlay-point-radius "$OVERLAY_POINT_RADIUS" --overlay-alpha "$OVERLAY_ALPHA")
+
+[[ -n "$EXPORT_ARG" ]] && CMD+=(--export "$EXPORT_ARG")
+[[ "$OVERLAY_INTENSITY" -eq 1 ]] && CMD+=(--overlay-intensity)
+[[ "$COMPRESS" -eq 1 ]] && CMD+=(--compress)
+[[ "$DELETE" -eq 1 ]] && CMD+=(--delete)
+[[ "$DATA_TYPE" == "surf" && -n "$CAM_NUM" ]] && CMD+=(--cam-num "$CAM_NUM")
+[[ "$DATA_TYPE" == "surf" && -n "$CAM_INFO" ]] && CMD+=(--cam-info "$CAM_INFO")
+
+echo "${CMD[@]}"
+exec "${CMD[@]}"
+```
+
+사용 예시:
+
+```bash
+# VALEO
+bash run_sampling.sh -p /mnt/valeo/20250915_172030 -t valeo -s 10 --overlay-every 5 -e $HOME/valeo_out
+
+# SURF (cam-num, cam-info 필수)
+bash run_sampling.sh -p /mnt/surf/2025-09-15 -t surf -s 10 --cam-num 5 --cam-info $HOME/calib/cam_info.json -z -e $HOME/surf_out
+
+# 실행 권한 부여
+chmod +x run_sampling.sh
+```
