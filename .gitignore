@@ -12,3 +12,16 @@ nohup.out
 *.pyc
 # Ingore bazel related files: bazel-bin, bazel-out, bazel-testlogs, and bazel-data_ingestion_tool.
 **/bazel-*/*
+# Node
+web/node_modules/
+web/.next/
+web/.turbo/
+
+# Python venv
+.venv/
+__pycache__/
+*.pyc
+
+# Build artifacts
+*.tar
+*.zip
