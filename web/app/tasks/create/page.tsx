@@ -24,7 +24,7 @@ type RunRequest = {
 export default function CreateTask() {
   const router = useRouter()
   const [form, setForm] = useState<RunRequest>({
-    path: '', data_type: 'valeo', stride: 1, overlay_every: 0, overlay_point_radius: 2, overlay_alpha: 1
+    path: '', data_type: 'valeo', stride: 10, overlay_every: 0, overlay_intensity: true, overlay_point_radius: 2, overlay_alpha: 1
   })
   const [status, setStatus] = useState<string>('')
   const [jobId, setJobId] = useState<string>('')
@@ -39,7 +39,7 @@ export default function CreateTask() {
   const canCreate = useMemo(() => {
     if (!form.path || !form.stride || form.stride < 1) return false
     if (form.data_type === 'surf' && (form.cam_num === undefined || form.cam_num === null || Number.isNaN(form.cam_num))) return false
-    if (form.data_type === 'surf' && (!form.cam_info || form.cam_info.trim() === '')) return false
+    // cam_info is optional for SURF; pipeline will auto-detect if empty
     return true
   }, [form])
 
@@ -100,7 +100,9 @@ export default function CreateTask() {
         <Link href="/tasks" className="btn btn-secondary">← Back to Tasks</Link>
       </div>
 
+      {/* Dataset & Output */}
       <section className="card">
+        <div className="mb-3 text-sm text-neutral-400">Dataset & Output</div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label>Path</label>
@@ -116,24 +118,6 @@ export default function CreateTask() {
               <option value="valeo">valeo</option>
             </select>
           </div>
-          <div>
-            <label>Stride</label>
-            <input className="input" type="number" min={1} value={form.stride} onChange={e => setForm({ ...form, stride: Number(e.target.value) })} />
-          </div>
-          {form.data_type === 'surf' && (
-            <div>
-              <label>Camera number (SURF)</label>
-              <input
-                className="input"
-                type="number"
-                value={form.cam_num ?? ''}
-                onChange={e => {
-                  const v = e.target.value
-                  setForm({ ...form, cam_num: v === '' ? undefined : Number(v) })
-                }}
-              />
-            </div>
-          )}
           <div className="md:col-span-2">
             <label>Export</label>
             <div className="flex gap-2">
@@ -141,39 +125,84 @@ export default function CreateTask() {
               <button type="button" className="btn btn-secondary" onClick={() => openPicker('export')}>Browse</button>
             </div>
           </div>
-          {form.data_type === 'surf' && (
+        </div>
+      </section>
+
+      {/* Sampling options */}
+      <section className="mt-4 card">
+        <div className="mb-3 text-sm text-neutral-400">Sampling</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label>Stride</label>
+            <input className="input" type="number" min={1} value={form.stride} onChange={e => setForm({ ...form, stride: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label>Skip first N LiDAR frames</label>
+            <input className="input" type="number" min={0} value={(form as any).skip_head ?? 0} onChange={e => setForm({ ...form, ...(form as any), skip_head: Number(e.target.value) })} />
+          </div>
+          <div>
+            <label>Skip last N LiDAR frames</label>
+            <input className="input" type="number" min={0} value={(form as any).skip_tail ?? 0} onChange={e => setForm({ ...form, ...(form as any), skip_tail: Number(e.target.value) })} />
+          </div>
+        </div>
+      </section>
+
+      {/* SURF options */}
+      {form.data_type === 'surf' && (
+        <section className="mt-4 card">
+          <div className="mb-3 text-sm text-neutral-400">SURF Options</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label>Camera number</label>
+              <input className="input" type="number" value={form.cam_num ?? ''} onChange={e => {
+                const v = e.target.value; setForm({ ...form, cam_num: v === '' ? undefined : Number(v) })
+              }} />
+            </div>
             <div className="md:col-span-2">
-              <label>Camera info file (SURF)</label>
+              <label>Camera info file (optional, auto-detect if empty)</label>
               <div className="flex gap-2">
-                <input className="input flex-1" value={form.cam_info ?? ''} onChange={e => setForm({ ...form, cam_info: e.target.value })} />
+                <input className="input flex-1" placeholder="Leave empty to auto-detect from raw" value={form.cam_info ?? ''} onChange={e => setForm({ ...form, cam_info: e.target.value })} />
                 <button type="button" className="btn btn-secondary" onClick={() => openPicker('cam_info')}>Browse</button>
               </div>
             </div>
-          )}
-          <div className="flex items-center gap-6">
-            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.compress} onChange={e => setForm({ ...form, compress: e.target.checked })} /> Compress</label>
-            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.delete} onChange={e => setForm({ ...form, delete: e.target.checked })} /> Delete after compress</label>
           </div>
-          <div className="flex items-center gap-6">
-            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.overlay_intensity} onChange={e => setForm({ ...form, overlay_intensity: e.target.checked })} /> Overlay Intensity</label>
+        </section>
+      )}
+
+      {/* Overlay options */}
+      <section className="mt-4 card">
+        <div className="mb-3 text-sm text-neutral-400">Overlay</div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-1 flex items-center">
+            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.overlay_intensity} onChange={e => setForm({ ...form, overlay_intensity: e.target.checked })} /> Intensity coloring</label>
           </div>
           <div>
-            <label>Overlay Every</label>
+            <label>Every Nth pair (0=off)</label>
             <input className="input" type="number" min={0} value={form.overlay_every ?? 0} onChange={e => setForm({ ...form, overlay_every: Number(e.target.value) })} />
           </div>
           <div>
-            <label>Overlay Point Radius</label>
+            <label>Point radius</label>
             <input className="input" type="number" min={1} value={form.overlay_point_radius ?? 2} onChange={e => setForm({ ...form, overlay_point_radius: Number(e.target.value) })} />
           </div>
           <div>
-            <label>Overlay Alpha</label>
+            <label>Alpha</label>
             <input className="input" type="number" min={0} max={1} step={0.1} value={form.overlay_alpha ?? 1} onChange={e => setForm({ ...form, overlay_alpha: Number(e.target.value) })} />
           </div>
         </div>
-        <div className="mt-6 flex gap-3">
-          <button className="btn btn-primary disabled:opacity-60" disabled={!canCreate} onClick={submit}>Create</button>
+      </section>
+
+      {/* Packaging */}
+      <section className="mt-4 card">
+        <div className="mb-3 text-sm text-neutral-400">Packaging</div>
+        <div className="flex items-center gap-6">
+          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.compress} onChange={e => setForm({ ...form, compress: e.target.checked })} /> Compress</label>
+          <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.delete} onChange={e => setForm({ ...form, delete: e.target.checked })} /> Delete after compress</label>
         </div>
       </section>
+
+      <div className="mt-6 flex gap-3">
+        <button className="btn btn-primary disabled:opacity-60" disabled={!canCreate} onClick={submit}>Create</button>
+      </div>
 
       <section className="mt-6 card text-sm text-neutral-400">
         Status: {status || '-'} {jobId && <span>(job: {jobId})</span>}

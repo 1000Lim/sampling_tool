@@ -28,7 +28,7 @@ from util.lidar_util import read_pcd_file
 from util.draw_util import draw_projected_lidar_point_cloud_to_camera_image
 
 
-def run_surf_pipeline(rawdata_set: list[str], export: str, compress: bool, remove: bool, cam_info: str, cam_num: int, stride: int, overlay_every: int = 0, overlay_intensity: bool = False, overlay_point_radius: int = 2, overlay_alpha: float = 1.0):
+def run_surf_pipeline(rawdata_set: list[str], export: str, compress: bool, remove: bool, cam_info: str, cam_num: int, stride: int, overlay_every: int = 0, overlay_intensity: bool = False, overlay_point_radius: int = 2, overlay_alpha: float = 1.0, skip_head: int = 0, skip_tail: int = 0):
     os.makedirs(export, exist_ok=True)
     os.makedirs(os.path.join(export, 'lidar'), exist_ok=True)
     os.makedirs(os.path.join(export, 'images'), exist_ok=True)
@@ -65,6 +65,11 @@ def run_surf_pipeline(rawdata_set: list[str], export: str, compress: bool, remov
                 angle_start, angle_end = calculate_motor_angle_range(calib_info)
                 frame_dict = get_timestamps_from_frame_file(frame_file)
                 lidar_frames = copy_sampled_lidar(lidar_file, sampling_ratio=stride, copy_dir=export)
+                if skip_head > 0 or skip_tail > 0:
+                    start_idx = min(skip_head, len(lidar_frames))
+                    end_idx = len(lidar_frames) - max(skip_tail, 0)
+                    end_idx = max(start_idx, end_idx)
+                    lidar_frames = lidar_frames[start_idx:end_idx]
                 lidar_matched_frames = find_matching_cam_frames_from_circular_lidar(
                     angle_start, angle_end, lidar_frames, frame_dict, export_interface_file=os.path.join(export, 'mapping.csv')
                 )

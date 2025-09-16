@@ -45,6 +45,8 @@ python sampling_tool.py \
   --path /path/to/dataset \
   --data-type [surf|valeo] \
   --stride 10 \
+  --skip-head 0 \
+  --skip-tail 0 \
   --compress \
   --delete \
   --export /path/to/export \
@@ -53,7 +55,7 @@ python sampling_tool.py \
   --overlay-point-radius 2 \
   --overlay-alpha 1.0 \
   [SURF only] --cam-num 5 \
-  [SURF only] --cam-info /path/to/cam_info.json
+  [SURF optional] --cam-info /path/to/cam_info.json
 
 # If your local CLI shows a `run` command in --help, use this instead:
 # python sampling_tool.py run [same options as above]
@@ -61,7 +63,8 @@ python sampling_tool.py \
 
 Notes:
 - `stride` must be ≥ 1. `ratio` is deprecated.
-- For SURF, `--cam-num` and `--cam-info` are required.
+- For SURF, `--cam-num` is required. `--cam-info` is optional; if omitted, the pipeline tries to auto-detect from the raw path.
+- `--skip-head/--skip-tail`: 샘플링 이후 앞/뒤의 LiDAR 프레임 N개를 제외하여 매칭/내보내기를 수행합니다.
 - If `--export` is omitted, defaults to `consts.SAMPLING_DIR`.
 
 ---
@@ -118,20 +121,6 @@ npm run dev -- -p 3050
 
 Set `NEXT_PUBLIC_API_URL=http://localhost:8000` if you run web outside compose.
 
----
-
-## Troubleshooting
-
-- 500 on POST /run with enums: fixed by using FastAPI `jsonable_encoder` (already in code).
-- OpenCV/numpy build issues: versions are relaxed in `requirements.txt`.
-- Debian `libgl1-mesa-glx` missing: using `libgl1` in Docker base image.
-- Permissions: ensure export path is writable within the mounted `${HOME}`.
-
----
-
-## License
-
-Internal project. All rights reserved.
 
 ---
 

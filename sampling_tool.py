@@ -35,6 +35,8 @@ def main(
     overlay_intensity: bool,
     overlay_point_radius: int,
     overlay_alpha: float,
+    skip_head: int,
+    skip_tail: int,
 ):
     if not work_path or not os.path.isdir(work_path):
         logger.error("Error: Please input the correct path.")
@@ -67,9 +69,9 @@ def main(
 
     # Dispatch to pipelines
     if data_type_enum == DataType.SURF:
-        run_surf_pipeline(rawdata_set, export, compress, remove, cam_info, cam_num, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha)
+        run_surf_pipeline(rawdata_set, export, compress, remove, cam_info, cam_num, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail)
     else:
-        run_valeo_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha)
+        run_valeo_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail)
 
 
 
@@ -82,7 +84,7 @@ console = Console()
 def run(
     path: str = typer.Option(..., "--path", "-p", help='The path to work on.'),
     cam_num: int = typer.Option(None, "--cam-num", "-c", help='Reference camera number for SURF.'),
-    stride: int = typer.Option(1, "--stride", "-s", help='Sample every Nth LiDAR frame (1 = all frames).'),
+    stride: int = typer.Option(10, "--stride", "-s", help='Sample every Nth LiDAR frame (1 = all frames).'),
     compress: bool = typer.Option(False, "--compress", "-z", help='Compress to tar file.'),
     delete: bool = typer.Option(False, "--delete", "-d", help='Delete images/lidars after compression.'),
     export: str = typer.Option(None, "--export", "-e", help='The export path.'),
@@ -92,6 +94,8 @@ def run(
     overlay_intensity: bool = typer.Option(False, "--overlay-intensity", help='Color overlay by intensity instead of distance.'),
     overlay_point_radius: int = typer.Option(2, "--overlay-point-radius", help='Overlay point radius in pixels (>=1).'),
     overlay_alpha: float = typer.Option(1.0, "--overlay-alpha", help='Overlay alpha blending (1.0 = opaque, 0.0 = transparent).'),
+    skip_head: int = typer.Option(0, "--skip-head", help='Skip N LiDAR frames from the beginning after sampling.'),
+    skip_tail: int = typer.Option(0, "--skip-tail", help='Skip N LiDAR frames from the end after sampling.'),
 ):
     main(
         stride=stride,
@@ -106,6 +110,8 @@ def run(
         overlay_intensity=overlay_intensity,
         overlay_point_radius=overlay_point_radius,
         overlay_alpha=overlay_alpha,
+        skip_head=skip_head,
+        skip_tail=skip_tail,
     )
 
 

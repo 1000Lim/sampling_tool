@@ -18,7 +18,7 @@ from sampling_tool import main as run_sampling
 class RunRequest(BaseModel):
     path: str = Field(..., description="Root path of the raw dataset to process")
     data_type: DataType = Field(DataType.SURF, description="Dataset type: surf or valeo")
-    stride: int = Field(1, ge=1, description="Sample every Nth LiDAR frame (1 = all)")
+    stride: int = Field(10, ge=1, description="Sample every Nth LiDAR frame (1 = all)")
     cam_num: Optional[int] = Field(None, description="SURF only: reference camera number")
     export: Optional[str] = Field(None, description="Export directory (default: SAMPLING_DIR)")
     compress: bool = Field(False, description="Compress images and lidar to tar")
@@ -28,6 +28,8 @@ class RunRequest(BaseModel):
     overlay_intensity: bool = Field(False, description="Color overlay by intensity instead of distance")
     overlay_point_radius: int = Field(2, ge=1, description="Overlay point radius in pixels")
     overlay_alpha: float = Field(1.0, ge=0.0, le=1.0, description="Overlay alpha blending")
+    skip_head: int = Field(0, ge=0, description="Skip N LiDAR frames from the beginning after sampling")
+    skip_tail: int = Field(0, ge=0, description="Skip N LiDAR frames from the end after sampling")
 
 
 class JobStatus(BaseModel):
@@ -165,6 +167,8 @@ def _run_job(job_id: str, req: RunRequest):
             overlay_intensity=req.overlay_intensity,
             overlay_point_radius=req.overlay_point_radius,
             overlay_alpha=req.overlay_alpha,
+            skip_head=req.skip_head,
+            skip_tail=req.skip_tail,
         )
         job.status = "completed"
         job.finished_at = time.time()

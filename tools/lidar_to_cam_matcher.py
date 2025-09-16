@@ -191,7 +191,7 @@ def find_best_matching_cam_frame_from_circular_lidar(
     return best_matching_frame
 
 
-def write_export_interface_file(matched_frames: List[LidarMatchedCamFrame], export_interface_file: str):
+def write_export_interface_file(matched_frames: List[LidarMatchedCamFrame], export_interface_file: str | None):
     """
     Writes the matched frames to an export interface file.
 
@@ -221,8 +221,14 @@ def write_export_interface_file(matched_frames: List[LidarMatchedCamFrame], expo
         lidar_frame_index += 1
         lines.append(line_info)
 
-    with open(export_interface_file, 'w', encoding='utf-8') as f:
-        f.writelines(lines)
+    if not export_interface_file:
+        return
+    try:
+        with open(export_interface_file, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+    except Exception:
+        # best-effort; do not fail pipeline because export path is invalid
+        pass
 
 
 def find_matching_cam_frames_from_circular_lidar(
@@ -232,7 +238,7 @@ def find_matching_cam_frames_from_circular_lidar(
         camera_timestamps: Dict,
         matching_threthold: float = 0,
         circular_lidar_config: CircularLidarConfig = Pandar64,
-        export_interface_file: str = None,
+        export_interface_file: str | None = None,
         camera_expousre_time: int = CAM_DEFAULT_EXPOSURE_TIME) -> List[LidarMatchedCamFrame]:
     """
     Finds the matching camera frames from a circular lidar scan.
@@ -271,6 +277,7 @@ def find_matching_cam_frames_from_circular_lidar(
     # sort the matched frames by lidar timestamp.
     sorted(matched_frames, key=lambda x: x.lidar_timestamp)
 
+    # Write only if a valid path is explicitly provided
     if export_interface_file:
         write_export_interface_file(matched_frames, export_interface_file)
 
