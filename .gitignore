@@ -30,3 +30,8 @@ __pycache__/
 web/node_modules/
 web/.next/
 web/.turbo/
+
+# Node
+web/node_modules/
+web/.next/
+web/.turbo/
