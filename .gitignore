@@ -25,6 +25,7 @@ __pycache__/
 # Build artifacts
 *.tar
 *.zip
+*.db
 
 # Node
 web/node_modules/
