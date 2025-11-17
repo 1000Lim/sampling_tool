@@ -36,3 +36,4 @@ web/.turbo/
 web/node_modules/
 web/.next/
 web/.turbo/
+*.db
