@@ -130,7 +130,7 @@ def run_surf_pipeline(rawdata_set: list[str], export: str, compress: bool, remov
                     sample_frames, os.path.join(export, os.path.basename(raw) + "_" + SAMPLE_CSV_NAME)
                 )
         except Exception as e:
-            logger.error(f"Failed to sample the raw: {raw}, error: {e}")
+            logger.exception(f"Failed to sample the raw: {raw}, error: {e}")
             continue
 
     if compress:

@@ -15,7 +15,7 @@ class LidarToCamera:
     quad_z: float = None
     trans_x: float = None
     trans_y: float = None
-    trans_z = float = None
+    trans_z: float = None
 
 
 @dataclass
@@ -31,6 +31,10 @@ class CalibrationParams:
     k2: float = None
     k3: float = None
     k4: float = None
+    k5: float = None
+    k6: float = None
+    k7: float = None
+    k8: float = None
     p1: float = None
     p2: float = None
     lidar_to_camera: LidarToCamera = field(default_factory=LidarToCamera)
@@ -49,7 +53,10 @@ def get_calib_from_cam_info_json_dict(item: dict) -> Calibration:
     calib.width = item['width']
     calib.height = item['height']
     cam_calibration = item['calibration']
-    calib.camera_type = cam_calibration['distortion'].lower()
+
+    # Set camera type
+    distortion_type = cam_calibration['distortion'].lower()
+    calib.camera_type = distortion_type
 
     # intrinsic matrix
     intrinsic = calib.camera_intrinsic_matrix
@@ -63,8 +70,16 @@ def get_calib_from_cam_info_json_dict(item: dict) -> Calibration:
     distortion[1] = cam_calibration['k2']
     distortion[2] = cam_calibration['k3']
     distortion[3] = cam_calibration['k4']
-    distortion[4] = cam_calibration['p1']
-    distortion[5] = cam_calibration['p2']
+
+    if distortion_type == 'generic8':
+        # generic8 uses k1-k8
+        distortion[4] = cam_calibration['k5']
+        distortion[5] = cam_calibration['k6']
+        distortion[6] = cam_calibration['k7']
+        distortion[7] = cam_calibration['k8']
+    else:
+        distortion[4] = cam_calibration['p1']
+        distortion[5] = cam_calibration['p2']
     # lidar calibration
     lidar_param = item['lidar_parameter']
 
@@ -105,8 +120,16 @@ def parse_calib_param_cam_info(items: dict):
     camera_calib.k2 = cam_calibration['k2']
     camera_calib.k3 = cam_calibration['k3']
     camera_calib.k4 = cam_calibration['k4']
-    camera_calib.p1 = cam_calibration['p1']
-    camera_calib.p2 = cam_calibration['p2']
+    
+    
+    if cam_calibration['distortion'].lower() == 'generic8':
+        camera_calib.k5 = cam_calibration['k5']
+        camera_calib.k6 = cam_calibration['k6']
+        camera_calib.k7 = cam_calibration['k7']
+        camera_calib.k8 = cam_calibration['k8']
+    else:
+        camera_calib.p1 = cam_calibration['p1']
+        camera_calib.p2 = cam_calibration['p2']
 
     if 'lidar_parameter' in items:
         lidar_param = items['lidar_parameter']
@@ -138,7 +161,15 @@ def get_calib_from_camera_dc_camera_config(camera_config: dict) -> Calibration:
     calib.height = camera_config['height']
     camera_calib = camera_config['cameraCalibration']
 
-    calib.camera_type = camera_calib['distortion'].lower()
+    # Convert generic8 to standard format
+    distortion_type = camera_calib['distortion'].lower()
+    if distortion_type == 'generic8':
+        # generic8 uses k1-k8 with no tangential distortion
+        # Convert to standard format (k1-k4, p1=0, p2=0)
+        calib.camera_type = 'fisheye'
+    else:
+        calib.camera_type = distortion_type
+
     # intrinsic matrix
     intrinsic = calib.camera_intrinsic_matrix
     intrinsic[0, 0] = camera_calib['fx']
@@ -151,8 +182,14 @@ def get_calib_from_camera_dc_camera_config(camera_config: dict) -> Calibration:
     distortion[1] = camera_calib['k2']
     distortion[2] = camera_calib['k3']
     distortion[3] = camera_calib['k4']
-    distortion[4] = camera_calib['p1']
-    distortion[5] = camera_calib['p2']
+
+    if distortion_type == 'generic8':
+        # generic8 has no tangential distortion, set p1=p2=0
+        distortion[4] = 0.0
+        distortion[5] = 0.0
+    else:
+        distortion[4] = camera_calib['p1']
+        distortion[5] = camera_calib['p2']
     # lidar calibration
     lidar_param = camera_config['lidarCalibration']
 
@@ -171,3 +208,5 @@ def get_calib_from_camera_dc_camera_config(camera_config: dict) -> Calibration:
     )
     calib.vcs_to_ccs_matrix = rot_mat
     return calib
+
+

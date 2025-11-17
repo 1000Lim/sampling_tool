@@ -1,6 +1,7 @@
 import os
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -26,11 +27,20 @@ def init_db() -> None:
                 export_dir TEXT,
                 error TEXT,
                 created_at REAL NOT NULL,
-                finished_at REAL
+                finished_at REAL,
+                stats TEXT
             )
             """
         )
         conn.commit()
+
+        # Migrate existing database: add stats column if it doesn't exist
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN stats TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            # Column already exists
+            pass
 
 
 def create_task(task_id: str, status: str, params: Dict[str, Any], created_at: float, export_dir: Optional[str] = None) -> None:
@@ -42,7 +52,7 @@ def create_task(task_id: str, status: str, params: Dict[str, Any], created_at: f
         conn.commit()
 
 
-def update_task(task_id: str, status: Optional[str] = None, export_dir: Optional[str] = None, error: Optional[str] = None, finished_at: Optional[float] = None) -> None:
+def update_task(task_id: str, status: Optional[str] = None, export_dir: Optional[str] = None, error: Optional[str] = None, finished_at: Optional[float] = None, stats: Optional[Dict[str, Any]] = None) -> None:
     sets: List[str] = []
     values: List[Any] = []
     if status is not None:
@@ -57,6 +67,9 @@ def update_task(task_id: str, status: Optional[str] = None, export_dir: Optional
     if finished_at is not None:
         sets.append("finished_at = ?")
         values.append(finished_at)
+    if stats is not None:
+        sets.append("stats = ?")
+        values.append(json.dumps(stats))
     if not sets:
         return
     values.append(task_id)
@@ -82,5 +95,27 @@ def list_tasks() -> List[Dict[str, Any]]:
     with _connect() as conn:
         cur = conn.execute("SELECT * FROM tasks ORDER BY created_at DESC")
         return [dict(r) for r in cur.fetchall()]
+
+
+def cleanup_running_tasks() -> int:
+    """Mark all running tasks as failed (orphaned from server restart)."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE tasks SET status = ?, error = ?, finished_at = ? WHERE status = ?",
+            ("failed", "Job was interrupted (server restarted). Click 'Restart' to resume.", time.time(), "running")
+        )
+        conn.commit()
+        return cur.rowcount
+
+
+def cleanup_completed_task_errors() -> int:
+    """Clear error messages from successfully completed tasks."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE tasks SET error = NULL WHERE status = ? AND error IS NOT NULL",
+            ("completed",)
+        )
+        conn.commit()
+        return cur.rowcount
 
 

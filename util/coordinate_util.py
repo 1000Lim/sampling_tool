@@ -269,7 +269,6 @@ def apply_distortion_at_ics_points(undistorted_ics_points:np.ndarray, calib:Cali
             undistorted_ics_points = ccs_to_ics_points(ics_to_ccs_points(undistorted_ics_points, calib), new_intrinsic_calib)
         return undistorted_ics_points
 
-    k1, k2, k3, k4, p1, p2 = calib.camera_distortion_coefficient
     fx, fy, cx, cy = calib.fx, calib.fy, calib.cx, calib.cy
 
     u = (undistorted_ics_points[..., 0:1] - cx) / fx
@@ -278,17 +277,58 @@ def apply_distortion_at_ics_points(undistorted_ics_points:np.ndarray, calib:Cali
 
     if calib.camera_type == 'standard':
         # https://docs.opencv.org/4.x/dc/dbb/tutorial_py_calibration.html
+        k1, k2, k3, k4, p1, p2 = calib.camera_distortion_coefficient[:6]
         r2 = (u ** 2) + (v ** 2)
         radial_d = (1 + k1 * r2 + k2 * (r2 ** 2) + k3 * (r2 ** 3)) / (1 + k4 * r2)
         u = radial_d * u + 2 * p1 * (u * v) + p2 * (r2 + 2 * (u ** 2))
         v = radial_d * v + p1 * (r2 + 2 * (v ** 2)) + 2 * p2 * (u * v)
     elif calib.camera_type == 'fisheye':
         # https://docs.opencv.org/3.4/db/d58/group__calib3d__fisheye.html
+        k1, k2, k3, k4, p1, p2 = calib.camera_distortion_coefficient[:6]
         r = sqrt(u ** 2 + v ** 2)
         theta = arctan(r)
         theta_d = theta + (k1 * theta ** 3) + (k2 * theta ** 5) + (k3 * theta ** 7) + (k4 * theta ** 9)
         u = (theta_d / r) * u
         v = (theta_d / r) * v
+    elif calib.camera_type == 'generic8':
+        # Generic8 distortion model
+        # The polynomial outputs distorted radius in PIXEL space, not normalized space
+        # r_distort_pixels = k1*θ + k2*θ² + ... + k8*θ⁸
+        k1, k2, k3, k4, k5, k6, k7, k8 = calib.camera_distortion_coefficient
+        r_undistort = sqrt(u ** 2 + v ** 2)
+        r_sq_plus_1 = u ** 2 + v ** 2 + 1
+        r = sqrt(r_sq_plus_1)
+        r_inv = 1.0 / r
+
+        # Only apply distortion where r_inv <= 1
+        valid_mask = np.abs(r_inv) <= 1.0
+
+        # Calculate theta (angle from optical axis)
+        theta_u = np.arccos(np.clip(r_inv, -1.0, 1.0))
+        theta_u_2 = theta_u * theta_u
+        theta_u_3 = theta_u * theta_u_2
+        theta_u_4 = theta_u_2 * theta_u_2
+        theta_u_5 = theta_u_2 * theta_u_3
+        theta_u_6 = theta_u_3 * theta_u_3
+        theta_u_7 = theta_u_2 * theta_u_5
+        theta_u_8 = theta_u_4 * theta_u_4
+
+        # r_distort is in PIXEL space
+        r_distort_pixels = (k1 * theta_u + k2 * theta_u_2 + k3 * theta_u_3 + k4 * theta_u_4 +
+                            k5 * theta_u_5 + k6 * theta_u_6 + k7 * theta_u_7 + k8 * theta_u_8)
+
+        # Convert to normalized space by dividing by focal length
+        # Use average of fx and fy for radial distortion
+        f_avg = (fx + fy) / 2.0
+        r_distort_normalized = r_distort_pixels / f_avg
+
+        # Calculate distortion factor
+        factor = np.where(r_undistort > 1e-8, r_distort_normalized / r_undistort, 1.0)
+        factor = np.where(np.isfinite(factor), factor, 1.0)
+        factor = np.where(valid_mask, factor, 1.0)
+
+        u = factor * u
+        v = factor * v
     else:
         raise ValueError(f'Cannot recognize type of camera = {calib.camera_type}')
 
@@ -331,7 +371,12 @@ def apply_undistortion_at_ics_points(ics_points:np.ndarray, calib:Calibration, n
             ics_points = ccs_to_ics_points(ics_to_ccs_points(ics_points, calib), new_intrinsic_calib)
         return ics_points
 
-    k1, k2, k3, k4, p1, p2 = calib.camera_distortion_coefficient
+    # Extract distortion coefficients based on camera type
+    if calib.camera_type == 'generic8':
+        k1, k2, k3, k4, k5, k6, k7, k8 = calib.camera_distortion_coefficient
+        p1, p2 = 0.0, 0.0  # Generic8 has no tangential distortion
+    else:
+        k1, k2, k3, k4, p1, p2 = calib.camera_distortion_coefficient[:6]
 
     # Convert 2D points from pixels to normalized camera coordinates
     cx = calib.cx  # princial point in x (Bx1)
@@ -363,6 +408,21 @@ def apply_undistortion_at_ics_points(ics_points:np.ndarray, calib:Calibration, n
             kwargs['cameraMatrix'] = intrinsic
             kwargs['distCoeffs'] = calib.cv_dist_coef
             undistort_points = cv2.undistortPoints(**kwargs)
+        elif calib.camera_type == 'generic8':
+            # Generic8 undistortion not supported by OpenCV
+            # For now, return points without undistortion
+            # TODO: Implement iterative undistortion for Generic8
+            import warnings
+            warnings.warn('Generic8 undistortion is not yet implemented. Returning distorted points.')
+            x = (ics_points[..., 0:1] - cx) / fx
+            y = (ics_points[..., 1:2] - cy) / fy
+            if new_intrinsic_calib is not None:
+                x = x * new_intrinsic_calib.fx + new_intrinsic_calib.cx
+                y = y * new_intrinsic_calib.fy + new_intrinsic_calib.cy
+            else:
+                x = x * fx + cx
+                y = y * fy + cy
+            return np.concatenate([x, y, z], axis=-1)
         else:
             raise ValueError(f'Cannot recognize type of camera = {calib.camera_type}')
         x = undistort_points[..., 0, 0:1]

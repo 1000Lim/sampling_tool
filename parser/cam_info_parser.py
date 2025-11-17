@@ -8,11 +8,16 @@ from util.coordinate_util import quaternion_to_rotation_matrix
 def _parse_legacy_cam_info(item: dict) -> Calibration:
     """Parse legacy SURF-style cam_info with keys 'calibration' and 'lidar_parameter'."""
     calib = Calibration()
+
     calib.width = item['width']
     calib.height = item['height']
     cam_calibration = item['calibration']
-    if 'distortion' in cam_calibration and isinstance(cam_calibration['distortion'], str):
-        calib.camera_type = cam_calibration['distortion'].lower()
+
+    # Set camera type
+    distortion_type = cam_calibration.get('distortion', '').lower()
+    if distortion_type:
+        calib.camera_type = distortion_type
+        calib.distortion_model = distortion_type
 
     intrinsic = calib.camera_intrinsic_matrix
     intrinsic[0, 0] = float(cam_calibration['fx'])
@@ -26,8 +31,16 @@ def _parse_legacy_cam_info(item: dict) -> Calibration:
     distortion[1] = float(cam_calibration.get('k2', 0.0))
     distortion[2] = float(cam_calibration.get('k3', 0.0))
     distortion[3] = float(cam_calibration.get('k4', 0.0))
-    distortion[4] = float(cam_calibration.get('p1', 0.0))
-    distortion[5] = float(cam_calibration.get('p2', 0.0))
+
+    if distortion_type == 'generic8':
+        # generic8 uses k1-k8
+        distortion[4] = float(cam_calibration.get('k5', 0.0))
+        distortion[5] = float(cam_calibration.get('k6', 0.0))
+        distortion[6] = float(cam_calibration.get('k7', 0.0))
+        distortion[7] = float(cam_calibration.get('k8', 0.0))
+    else:
+        distortion[4] = float(cam_calibration.get('p1', 0.0))
+        distortion[5] = float(cam_calibration.get('p2', 0.0))
 
     lidar_param = item['lidar_parameter']
     rot_mat = quaternion_to_rotation_matrix(
@@ -65,9 +78,10 @@ def get_calib_from_valeo_cam_info_dict(item: dict) -> Calibration:
     cam_params = params['camera_parameter']
     lidar_params = params['lidar_parameter']
 
-    # camera type / distortion model
-    if 'CAM_DISTORTION' in cam_params and isinstance(cam_params['CAM_DISTORTION'], str):
-        calib.camera_type = cam_params['CAM_DISTORTION'].lower()
+    # Set camera type
+    distortion_type = cam_params.get('CAM_DISTORTION', '').lower()
+    if distortion_type:
+        calib.camera_type = distortion_type
 
     # intrinsic
     intrinsic = calib.camera_intrinsic_matrix
@@ -83,8 +97,16 @@ def get_calib_from_valeo_cam_info_dict(item: dict) -> Calibration:
     distortion[1] = float(cam_params.get('CAM_K2', 0.0))
     distortion[2] = float(cam_params.get('CAM_K3', 0.0))
     distortion[3] = float(cam_params.get('CAM_K4', 0.0))
-    distortion[4] = float(cam_params.get('CAM_P1', 0.0))
-    distortion[5] = float(cam_params.get('CAM_P2', 0.0))
+
+    if distortion_type == 'generic8':
+        # generic8 uses k1-k8
+        distortion[4] = float(cam_params.get('CAM_K5', 0.0))
+        distortion[5] = float(cam_params.get('CAM_K6', 0.0))
+        distortion[6] = float(cam_params.get('CAM_K7', 0.0))
+        distortion[7] = float(cam_params.get('CAM_K8', 0.0))
+    else:
+        distortion[4] = float(cam_params.get('CAM_P1', 0.0))
+        distortion[5] = float(cam_params.get('CAM_P2', 0.0))
 
     # lidar extrinsic via quaternion + translation
     qw = float(lidar_params['QUAD_W'])

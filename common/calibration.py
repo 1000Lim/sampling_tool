@@ -6,6 +6,7 @@ import re
 import numpy as np
 from util.data_converter_util import DataConverter
 
+SUPPORTED_DISTORTION_MODELS = ['standard', 'fisheye', 'generic8']
 
 def quaternion_to_rotation_matrix(quaternion: np.ndarray, translation: np.ndarray = None):
     """ Covert a quaternion into a full three-dimensional rotation matrix.
@@ -75,7 +76,19 @@ class Calibration(object):
         self.camera_type = None
         self.camera_intrinsic_matrix = np.zeros([3, 4], dtype=np.float64)
         self.image_rectification_matrix = np.zeros([3, 3], dtype=np.float64)
-        self.camera_distortion_coefficient = np.zeros([6], dtype=np.float64)
+
+        # Distortion coefficient: [k1, k2, k3, k4, p1/k5, p2/k6, k7, k8]
+        # standard/fisheye: uses first 6 [k1, k2, k3, k4, p1, p2]
+        # generic8: uses all 8 [k1, k2, k3, k4, k5, k6, k7, k8]
+        self.camera_distortion_coefficient = np.zeros([8], dtype=np.float64)
+        self.distortion_model = self.camera_type  # 'standard', 'fisheye', 'generic8'
+        
+        if self.camera_type not in SUPPORTED_DISTORTION_MODELS:
+            self.distortion_model = 'standard'
+        else:
+            self.distortion_model = self.camera_type
+    
+        
         self.vcs_to_ccs_matrix = np.zeros([4, 4], dtype=np.float64)
         self.converter = DataConverter()
         if json_path is not None:
@@ -91,7 +104,7 @@ class Calibration(object):
         coefficient = self.camera_distortion_coefficient.flatten().tolist()
         assert len(intrinsic) in [9, 12]
         assert len(extrinsic) == 16
-        assert len(coefficient) in [4, 6]
+        assert len(coefficient) in [4, 6, 8]
         self.converter.dict = dict(
             type=self.camera_type,
             extrinsic=extrinsic,
@@ -110,28 +123,48 @@ class Calibration(object):
         params = params_dict
         assert len(params['intrinsic']) in [9, 12]
         assert len(params['extrinsic']) == 16
-        # [K1, K2, P1, P2] or [K1, K2, K3, K4, P1, P2]
-        assert len(params['coefficient']) in [4, 6]
+        # [K1, K2, P1, P2] or [K1, K2, K3, K4, P1, P2] or [K1-K8]
+        assert len(params['coefficient']) in [4, 6, 8]
         self.camera_type = params['type'].lower(
         ) if 'type' in params else 'standard'
 
-        assert self.camera_type in ['standard', 'rectlinear', 'fisheye']
+        # distortion model
+        if 'distortion_model' in params:
+            self.distortion_model = params['distortion_model'].lower()
+        else:
+            self.distortion_model = self.camera_type
 
         intrinsic = params['intrinsic']
         extrinsic = params['extrinsic']
         coefficient = params['coefficient']
 
-        if self.camera_type == 'rectlinear':
-            self.camera_type = 'standard'
-
-        if self.camera_type == 'standard':
+        if self.camera_type == 'standard' or self.camera_type == 'rectlinear':
             if len(coefficient) == 4:
+                # [K1, K2, P1, P2] -> [K1, K2, 0, 0, P1, P2, 0, 0]
                 coefficient = [coefficient[0], coefficient[1],
-                               0, 0, coefficient[2], coefficient[3]]
+                               0, 0, coefficient[2], coefficient[3], 0, 0]
+            elif len(coefficient) == 6:
+                # [K1, K2, K3, K4, P1, P2] -> [K1, K2, K3, K4, P1, P2, 0, 0]
+                coefficient = list(coefficient) + [0, 0]
+            elif len(coefficient) == 8:
+                coefficient = list(coefficient)
         elif self.camera_type == 'fisheye':
             if len(coefficient) == 4:
+                # [K1, K2, K3, K4] -> [K1, K2, K3, K4, 0, 0, 0, 0]
                 coefficient = [coefficient[0], coefficient[1],
-                               coefficient[2], coefficient[3], 0, 0]
+                               coefficient[2], coefficient[3], 0, 0, 0, 0]
+            elif len(coefficient) == 6:
+                # [K1, K2, K3, K4, P1, P2] -> [K1, K2, K3, K4, P1, P2, 0, 0]
+                coefficient = list(coefficient) + [0, 0]
+            elif len(coefficient) == 8:
+                coefficient = list(coefficient)
+        elif self.camera_type == 'generic8':
+            if len(coefficient) == 8:
+                # [K1-K8] -> already in correct format
+                coefficient = list(coefficient)
+            else:
+                raise ValueError(f'generic8 requires 8 coefficients, got {len(coefficient)}')
+
         coefficient = np.asarray(coefficient, dtype=np.float64)
 
         if len(intrinsic) == 9:
@@ -160,6 +193,12 @@ class Calibration(object):
         trans_x = None
         trans_y = None
         trans_z = None
+        k5_val = 0.0
+        k6_val = 0.0
+        k7_val = 0.0
+        k8_val = 0.0
+        
+        
         with open(param_path, 'r') as f:
             lines = f.readlines()
             for line in lines:
@@ -190,6 +229,15 @@ class Calibration(object):
                     self.camera_distortion_coefficient[2] = float(value)
                 elif key == 'CAM_K4':
                     self.camera_distortion_coefficient[3] = float(value)
+                elif key == 'CAM_K5':
+                    k5_val = float(value)
+                elif key == 'CAM_K6':
+                    k6_val = float(value)
+                elif key == 'CAM_K7':
+                    k7_val = float(value)
+                elif key == 'CAM_K8':
+                    k8_val = float(value)
+               
                 elif key == 'CAM_P1':
                     self.camera_distortion_coefficient[4] = float(value)
                 elif key == 'CAM_P2':
@@ -234,6 +282,17 @@ class Calibration(object):
                     print(f'Cannot recognize: {key}={value}')
 
         self.camera_intrinsic_matrix[2, 2] = 1
+        
+        if any([k5_val != 0, k6_val != 0, k7_val != 0, k8_val != 0]):
+            # If K5-K8 exist, treat as Generic8 model and map K5-K8 to indices [4..7]
+            self.camera_type = 'generic8'
+            self.distortion_model = 'generic8'
+            # Overwrite P1/P2 with zeros since Generic8 has no tangential terms
+            self.camera_distortion_coefficient[4] = k5_val
+            self.camera_distortion_coefficient[5] = k6_val
+            self.camera_distortion_coefficient[6] = k7_val
+            self.camera_distortion_coefficient[7] = k8_val
+        
         if quad_w is not None and trans_x is not None:
             rot_mat = quaternion_to_rotation_matrix(
                 quaternion=np.array(
@@ -248,6 +307,8 @@ class Calibration(object):
                 0, 0, -1, 0,
                 1, 0, 0, 0,
                 0, 0, 0, 1]).reshape(4, 4)
+    
+                
 
     def read_kitti_raw_calib(self, raw_calib_cam_to_cam_file_path: str, raw_calib_velo_to_cam_file_path: str):
         _calib = dict()
@@ -290,13 +351,13 @@ class Calibration(object):
             bool: True if the camera is distorted, False otherwise
         """
         return not np.allclose(self.camera_distortion_coefficient, 0.0, atol=1e-5)
-
     @property
     def cv_dist_coef(self):
         if self.camera_type == 'standard':
             return np.array([self.k1, self.k2, self.p1, self.p2, self.k3])
         elif self.camera_type == 'fisheye':
             return np.array([self.k1, self.k2, self.k3, self.k4])
+        
 
     @property
     def hfov(self):
@@ -337,7 +398,8 @@ class Calibration(object):
     @property
     def k4(self):
         return self.camera_distortion_coefficient[3]
-
+    
+  
     @property
     def p1(self):
         return self.camera_distortion_coefficient[4]
