@@ -81,14 +81,10 @@ class Calibration(object):
         # standard/fisheye: uses first 6 [k1, k2, k3, k4, p1, p2]
         # generic8: uses all 8 [k1, k2, k3, k4, k5, k6, k7, k8]
         self.camera_distortion_coefficient = np.zeros([8], dtype=np.float64)
-        self.distortion_model = self.camera_type  # 'standard', 'fisheye', 'generic8'
-        
-        if self.camera_type not in SUPPORTED_DISTORTION_MODELS:
-            self.distortion_model = 'standard'
-        else:
-            self.distortion_model = self.camera_type
-    
-        
+
+        # distortion_model will be set when camera_type is loaded
+        self.distortion_model = 'standard'  # default
+
         self.vcs_to_ccs_matrix = np.zeros([4, 4], dtype=np.float64)
         self.converter = DataConverter()
         if json_path is not None:
@@ -357,7 +353,11 @@ class Calibration(object):
             return np.array([self.k1, self.k2, self.p1, self.p2, self.k3])
         elif self.camera_type == 'fisheye':
             return np.array([self.k1, self.k2, self.k3, self.k4])
-        
+        elif self.camera_type == 'generic8':
+            # Generic8 doesn't use OpenCV distortion, return empty array
+            return np.array([])
+        else:
+            return np.array([])
 
     @property
     def hfov(self):

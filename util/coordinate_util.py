@@ -291,9 +291,8 @@ def apply_distortion_at_ics_points(undistorted_ics_points:np.ndarray, calib:Cali
         u = (theta_d / r) * u
         v = (theta_d / r) * v
     elif calib.camera_type == 'generic8':
-        # Generic8 distortion model
-        # The polynomial outputs distorted radius in PIXEL space, not normalized space
-        # r_distort_pixels = k1*θ + k2*θ² + ... + k8*θ⁸
+        # Generic8 distortion model (matches C++ VehicleCoordinatorGeneric8Distortion::DistortUV)
+        # r_distort = k1*θ + k2*θ² + ... + k8*θ⁸ (in pixel space)
         k1, k2, k3, k4, k5, k6, k7, k8 = calib.camera_distortion_coefficient
         r_undistort = sqrt(u ** 2 + v ** 2)
         r_sq_plus_1 = u ** 2 + v ** 2 + 1
@@ -313,22 +312,18 @@ def apply_distortion_at_ics_points(undistorted_ics_points:np.ndarray, calib:Cali
         theta_u_7 = theta_u_2 * theta_u_5
         theta_u_8 = theta_u_4 * theta_u_4
 
-        # r_distort is in PIXEL space
-        r_distort_pixels = (k1 * theta_u + k2 * theta_u_2 + k3 * theta_u_3 + k4 * theta_u_4 +
-                            k5 * theta_u_5 + k6 * theta_u_6 + k7 * theta_u_7 + k8 * theta_u_8)
-
-        # Convert to normalized space by dividing by focal length
-        # Use average of fx and fy for radial distortion
-        f_avg = (fx + fy) / 2.0
-        r_distort_normalized = r_distort_pixels / f_avg
+        # r_distort in pixel space (no normalization needed - matches C++)
+        r_distort = (k1 * theta_u + k2 * theta_u_2 + k3 * theta_u_3 + k4 * theta_u_4 +
+                     k5 * theta_u_5 + k6 * theta_u_6 + k7 * theta_u_7 + k8 * theta_u_8)
 
         # Calculate distortion factor
-        factor = np.where(r_undistort > 1e-8, r_distort_normalized / r_undistort, 1.0)
+        factor = np.where(r_undistort > 1e-8, r_distort / r_undistort, 1.0)
         factor = np.where(np.isfinite(factor), factor, 1.0)
         factor = np.where(valid_mask, factor, 1.0)
 
-        u = factor * u
-        v = factor * v
+        # Apply factor then divide by focal lengths (matches C++: factor * undistort_u / fx)
+        u = factor * u / fx
+        v = factor * v / fy
     else:
         raise ValueError(f'Cannot recognize type of camera = {calib.camera_type}')
 
@@ -363,6 +358,7 @@ def apply_undistortion_at_ics_points(ics_points:np.ndarray, calib:Calibration, n
     """
     tan = np.tan
     mean = np.mean
+    sqrt = np.sqrt
     _copy = np.copy
 
     if not calib.is_distorted():
@@ -409,19 +405,72 @@ def apply_undistortion_at_ics_points(ics_points:np.ndarray, calib:Calibration, n
             kwargs['distCoeffs'] = calib.cv_dist_coef
             undistort_points = cv2.undistortPoints(**kwargs)
         elif calib.camera_type == 'generic8':
-            # Generic8 undistortion not supported by OpenCV
-            # For now, return points without undistortion
-            # TODO: Implement iterative undistortion for Generic8
-            import warnings
-            warnings.warn('Generic8 undistortion is not yet implemented. Returning distorted points.')
-            x = (ics_points[..., 0:1] - cx) / fx
-            y = (ics_points[..., 1:2] - cy) / fy
+            # Generic8 undistortion (matches C++ VehicleCoordinatorGeneric8Distortion::UndistortUV)
+            k1, k2, k3, k4, k5, k6, k7, k8 = calib.camera_distortion_coefficient
+
+            # Convert to normalized coordinates
+            distort_u = (ics_points[..., 0:1] - cx) / fx
+            distort_v = (ics_points[..., 1:2] - cy) / fy
+
+            # Calculate r_distort (pixel space) and r_ndistort (normalized space)
+            r_distort = sqrt((distort_u * fx) ** 2 + (distort_v * fy) ** 2)
+            r_ndistort = sqrt(distort_u ** 2 + distort_v ** 2)
+            r_sq_plus_1 = distort_u ** 2 + distort_v ** 2 + 1
+            r = sqrt(r_sq_plus_1)
+            r_inv = 1.0 / r
+
+            # Initialize with approximation: theta = arccos(1/r)
+            theta_u = np.arccos(np.clip(r_inv, -1.0, 1.0))
+
+            # Newton-Raphson iteration
+            # f(theta) = k1*θ + k2*θ² + ... + k8*θ⁸ - r_distort
+            # f'(theta) = k1 + 2*k2*θ + 3*k3*θ² + ... + 8*k8*θ⁷
+            max_iterations = 1000
+            error_threshold = 1e-6
+
+            for _ in range(max_iterations):
+                theta_u_2 = theta_u * theta_u
+                theta_u_3 = theta_u * theta_u_2
+                theta_u_4 = theta_u * theta_u_3
+                theta_u_5 = theta_u * theta_u_4
+                theta_u_6 = theta_u * theta_u_5
+                theta_u_7 = theta_u * theta_u_6
+                theta_u_8 = theta_u * theta_u_7
+
+                f = (k1 * theta_u + k2 * theta_u_2 + k3 * theta_u_3 + k4 * theta_u_4 +
+                     k5 * theta_u_5 + k6 * theta_u_6 + k7 * theta_u_7 + k8 * theta_u_8 - r_distort)
+
+                df = (k1 + 2 * k2 * theta_u + 3 * k3 * theta_u_2 + 4 * k4 * theta_u_3 +
+                      5 * k5 * theta_u_4 + 6 * k6 * theta_u_5 + 7 * k7 * theta_u_6 + 8 * k8 * theta_u_7)
+
+                # Break if derivative is too small
+                if np.all(np.abs(df) < error_threshold):
+                    break
+
+                delta_theta = f / df
+                theta_u = theta_u - delta_theta
+
+                if np.all(np.abs(delta_theta) < error_threshold):
+                    break
+
+            # Calculate undistorted radius
+            cos_theta_u_inv = 1.0 / np.cos(theta_u)
+            r_undistort = sqrt(cos_theta_u_inv ** 2 - 1)
+
+            # Calculate factor and apply
+            factor = np.where(r_ndistort > 1e-8, r_undistort / r_ndistort, 1.0)
+            factor = np.where(np.isfinite(factor), factor, 1.0)
+
+            undistort_u = factor * distort_u
+            undistort_v = factor * distort_v
+
+            # Convert back to pixel coordinates
             if new_intrinsic_calib is not None:
-                x = x * new_intrinsic_calib.fx + new_intrinsic_calib.cx
-                y = y * new_intrinsic_calib.fy + new_intrinsic_calib.cy
+                x = undistort_u * new_intrinsic_calib.fx + new_intrinsic_calib.cx
+                y = undistort_v * new_intrinsic_calib.fy + new_intrinsic_calib.cy
             else:
-                x = x * fx + cx
-                y = y * fy + cy
+                x = undistort_u * fx + cx
+                y = undistort_v * fy + cy
             return np.concatenate([x, y, z], axis=-1)
         else:
             raise ValueError(f'Cannot recognize type of camera = {calib.camera_type}')
@@ -506,6 +555,10 @@ def undistort_image(img:np.ndarray, calib:Calibration, new_intrinsic_calib:Calib
             D=calib.cv_dist_coef,
             Knew=new_camera_intrinsic
         )
+    elif calib.camera_type == 'generic8':
+        # Generic8 doesn't have OpenCV support, use custom undistortion
+        # Fall back to pixel-by-pixel undistortion method
+        return undistort_image2(img, calib, new_intrinsic_calib, subsampling=1)
     else:
         raise ValueError(f'Cannot recognize type of camera = {calib.camera_type}')
     return new_image
