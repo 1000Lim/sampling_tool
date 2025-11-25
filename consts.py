@@ -7,6 +7,7 @@ import enum
 class DataType(enum.Enum):
     SURF='surf'
     VALEO='valeo'
+    ACLM='aclm'
 
 OVERLAY_DIR = os.path.abspath('overlay_images')
 SAMPLING_DIR = os.path.abspath('sampling')

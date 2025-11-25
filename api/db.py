@@ -28,18 +28,24 @@ def init_db() -> None:
                 error TEXT,
                 created_at REAL NOT NULL,
                 finished_at REAL,
-                stats TEXT
+                stats TEXT,
+                progress TEXT
             )
             """
         )
         conn.commit()
 
-        # Migrate existing database: add stats column if it doesn't exist
+        # Migrate existing database: add stats and progress columns if they don't exist
         try:
             conn.execute("ALTER TABLE tasks ADD COLUMN stats TEXT")
             conn.commit()
         except sqlite3.OperationalError:
-            # Column already exists
+            pass
+
+        try:
+            conn.execute("ALTER TABLE tasks ADD COLUMN progress TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
             pass
 
 
@@ -52,7 +58,7 @@ def create_task(task_id: str, status: str, params: Dict[str, Any], created_at: f
         conn.commit()
 
 
-def update_task(task_id: str, status: Optional[str] = None, export_dir: Optional[str] = None, error: Optional[str] = None, finished_at: Optional[float] = None, stats: Optional[Dict[str, Any]] = None) -> None:
+def update_task(task_id: str, status: Optional[str] = None, export_dir: Optional[str] = None, error: Optional[str] = None, finished_at: Optional[float] = None, stats: Optional[Dict[str, Any]] = None, progress: Optional[Dict[str, Any]] = None) -> None:
     sets: List[str] = []
     values: List[Any] = []
     if status is not None:
@@ -70,6 +76,9 @@ def update_task(task_id: str, status: Optional[str] = None, export_dir: Optional
     if stats is not None:
         sets.append("stats = ?")
         values.append(json.dumps(stats))
+    if progress is not None:
+        sets.append("progress = ?")
+        values.append(json.dumps(progress))
     if not sets:
         return
     values.append(task_id)

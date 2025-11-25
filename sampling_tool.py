@@ -6,6 +6,7 @@ from consts import SAMPLING_DIR, DataType
 from util.rawdata_util import search_rawdata_dirs_from
 from pipelines.surf_pipeline import run_surf_pipeline
 from pipelines.valeo_pipeline import run_valeo_pipeline
+from pipelines.aclm_pipeline import run_aclm_pipeline
 
 try:
     import typer
@@ -37,6 +38,9 @@ def main(
     overlay_alpha: float,
     skip_head: int,
     skip_tail: int,
+    convert_raw_to_jpg: bool,
+    raw_output_format: str,
+    raw_dgain: float,
 ):
     if not work_path or not os.path.isdir(work_path):
         logger.error("Error: Please input the correct path.")
@@ -70,8 +74,10 @@ def main(
     # Dispatch to pipelines
     if data_type_enum == DataType.SURF:
         run_surf_pipeline(rawdata_set, export, compress, remove, cam_info, cam_num, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail)
-    else:
+    elif data_type_enum == DataType.VALEO:
         run_valeo_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail)
+    elif data_type_enum == DataType.ACLM:
+        run_aclm_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail, convert_raw_to_jpg=convert_raw_to_jpg, raw_output_format=raw_output_format, raw_dgain=raw_dgain)
 
 
 
@@ -80,7 +86,7 @@ app = typer.Typer(add_completion=False, no_args_is_help=True, help='Sampling too
 console = Console()
 
 
-@app.command(help='Run sampling pipeline for SURF or VALEO dataset')
+@app.command(help='Run sampling pipeline for SURF, VALEO, or ACLM dataset')
 def run(
     path: str = typer.Option(..., "--path", "-p", help='The path to work on.'),
     cam_num: int = typer.Option(None, "--cam-num", "-c", help='Reference camera number for SURF.'),
@@ -96,6 +102,9 @@ def run(
     overlay_alpha: float = typer.Option(1.0, "--overlay-alpha", help='Overlay alpha blending (1.0 = opaque, 0.0 = transparent).'),
     skip_head: int = typer.Option(0, "--skip-head", help='Skip N LiDAR frames from the beginning after sampling.'),
     skip_tail: int = typer.Option(0, "--skip-tail", help='Skip N LiDAR frames from the end after sampling.'),
+    convert_raw_to_jpg: bool = typer.Option(False, "--convert-raw", help='Convert .raw to .jpg (ACLM only).'),
+    raw_output_format: str = typer.Option('gray', "--raw-format", help='Raw conversion format: gray or rgb (ACLM only).'),
+    raw_dgain: float = typer.Option(1.5, "--raw-dgain", help='Digital gain for RGB conversion (ACLM only).'),
 ):
     main(
         stride=stride,
@@ -112,6 +121,9 @@ def run(
         overlay_alpha=overlay_alpha,
         skip_head=skip_head,
         skip_tail=skip_tail,
+        convert_raw_to_jpg=convert_raw_to_jpg,
+        raw_output_format=raw_output_format,
+        raw_dgain=raw_dgain,
     )
 
 

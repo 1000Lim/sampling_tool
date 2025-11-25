@@ -17,7 +17,7 @@ from sampling_tool import main as run_sampling
 
 class RunRequest(BaseModel):
     path: str = Field(..., description="Root path of the raw dataset to process")
-    data_type: DataType = Field(DataType.SURF, description="Dataset type: surf or valeo")
+    data_type: DataType = Field(DataType.SURF, description="Dataset type: surf, valeo, or aclm")
     stride: int = Field(10, ge=1, description="Sample every Nth LiDAR frame (1 = all)")
     cam_num: Optional[int] = Field(None, description="SURF only: reference camera number")
     export: Optional[str] = Field(None, description="Export directory (default: SAMPLING_DIR)")
@@ -30,6 +30,9 @@ class RunRequest(BaseModel):
     overlay_alpha: float = Field(1.0, ge=0.0, le=1.0, description="Overlay alpha blending")
     skip_head: int = Field(0, ge=0, description="Skip N LiDAR frames from the beginning after sampling")
     skip_tail: int = Field(0, ge=0, description="Skip N LiDAR frames from the end after sampling")
+    convert_raw_to_jpg: bool = Field(False, description="ACLM only: convert .raw to .jpg")
+    raw_output_format: str = Field('gray', description="ACLM only: raw conversion format (gray or rgb)")
+    raw_dgain: float = Field(1.5, ge=0.1, le=10.0, description="ACLM only: digital gain for RGB conversion")
 
 
 class JobStatus(BaseModel):
@@ -39,6 +42,7 @@ class JobStatus(BaseModel):
     finished_at: Optional[float] = None
     error: Optional[str] = None
     export: Optional[str] = None
+    progress: Optional[Dict] = None
 
 
 app = FastAPI(title="Sampling Tool API", version="1.0.0")
@@ -134,6 +138,33 @@ def fs_entries(path: Optional[str] = Query(None), only_dirs: bool = Query(True))
     return {"cwd": str(base.resolve()), "parent": parent, "entries": [e.dict() for e in entries]}
 
 
+@app.post("/fs/mkdir")
+def fs_mkdir(parent_path: str, dir_name: str):
+    """Create a new directory"""
+    parent = Path(parent_path).expanduser()
+    if not _is_path_allowed(parent):
+        raise HTTPException(status_code=400, detail="Parent path not allowed")
+    if not parent.exists() or not parent.is_dir():
+        raise HTTPException(status_code=404, detail="Parent directory not found")
+
+    # Sanitize directory name
+    dir_name = dir_name.strip()
+    if not dir_name or '/' in dir_name or '\\' in dir_name or dir_name in ('.', '..'):
+        raise HTTPException(status_code=400, detail="Invalid directory name")
+
+    new_dir = parent / dir_name
+    if new_dir.exists():
+        raise HTTPException(status_code=400, detail="Directory already exists")
+
+    try:
+        new_dir.mkdir(parents=False, exist_ok=False)
+        return {"ok": True, "path": str(new_dir.resolve())}
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create directory: {str(e)}")
+
+
 @app.get("/files")
 def serve_file(path: str):
     p = Path(path)
@@ -169,6 +200,9 @@ def _run_job(job_id: str, req: RunRequest):
             overlay_alpha=req.overlay_alpha,
             skip_head=req.skip_head,
             skip_tail=req.skip_tail,
+            convert_raw_to_jpg=req.convert_raw_to_jpg,
+            raw_output_format=req.raw_output_format,
+            raw_dgain=req.raw_dgain,
         )
         job.status = "completed"
         job.finished_at = time.time()
@@ -200,7 +234,14 @@ def get_job(job_id: str):
     if not job:
         dbj = get_task(job_id)
         if dbj:
-            return JobStatus(id=dbj["id"], status=dbj["status"], started_at=dbj["created_at"], finished_at=dbj.get("finished_at"), error=dbj.get("error"), export=dbj.get("export_dir"))
+            import json as json_module
+            progress = None
+            if dbj.get("progress"):
+                try:
+                    progress = json_module.loads(dbj["progress"])
+                except Exception:
+                    pass
+            return JobStatus(id=dbj["id"], status=dbj["status"], started_at=dbj["created_at"], finished_at=dbj.get("finished_at"), error=dbj.get("error"), export=dbj.get("export_dir"), progress=progress)
         raise HTTPException(status_code=404, detail="job not found")
     return job
 
@@ -210,8 +251,37 @@ def tasks_list():
     return list_tasks()
 
 
+@app.post("/tasks/{task_id}/cancel")
+def tasks_cancel(task_id: str):
+    """Cancel a running task"""
+    job = _jobs.get(task_id)
+    if job and job.status == "running":
+        job.status = "cancelled"
+        job.finished_at = time.time()
+        job.error = "Task cancelled by user"
+        update_task(task_id, status="cancelled", error=job.error, finished_at=job.finished_at)
+        return {"ok": True, "message": "Task cancellation requested"}
+
+    # Check database
+    dbj = get_task(task_id)
+    if dbj and dbj["status"] == "running":
+        update_task(task_id, status="cancelled", error="Task cancelled by user", finished_at=time.time())
+        return {"ok": True, "message": "Task cancelled"}
+
+    raise HTTPException(status_code=400, detail="Task is not running or does not exist")
+
+
 @app.delete("/tasks/{task_id}")
 def tasks_delete(task_id: str):
+    """Delete a task (will cancel if running)"""
+    job = _jobs.get(task_id)
+    if job and job.status == "running":
+        # Cancel first
+        job.status = "cancelled"
+        job.finished_at = time.time()
+        job.error = "Task cancelled during deletion"
+        update_task(task_id, status="cancelled", error=job.error, finished_at=job.finished_at)
+
     delete_task(task_id)
     _jobs.pop(task_id, None)
     return {"ok": True}

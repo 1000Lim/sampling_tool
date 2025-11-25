@@ -8,7 +8,7 @@ const API_BASE = '/api'
 
 type RunRequest = {
   path: string
-  data_type: 'surf' | 'valeo'
+  data_type: 'surf' | 'valeo' | 'aclm'
   stride: number
   cam_num?: number
   export?: string
@@ -19,12 +19,16 @@ type RunRequest = {
   overlay_intensity?: boolean
   overlay_point_radius?: number
   overlay_alpha?: number
+  convert_raw_to_jpg?: boolean
+  raw_output_format?: 'gray' | 'rgb'
+  raw_dgain?: number
 }
 
 export default function CreateTask() {
   const router = useRouter()
   const [form, setForm] = useState<RunRequest>({
-    path: '', data_type: 'valeo', stride: 10, overlay_every: 0, overlay_intensity: true, overlay_point_radius: 2, overlay_alpha: 1
+    path: '', data_type: 'valeo', stride: 10, overlay_every: 0, overlay_intensity: true, overlay_point_radius: 2, overlay_alpha: 1,
+    convert_raw_to_jpg: false, raw_output_format: 'gray', raw_dgain: 1.5
   })
   const [status, setStatus] = useState<string>('')
   const [jobId, setJobId] = useState<string>('')
@@ -35,6 +39,8 @@ export default function CreateTask() {
   const [dirsOnly, setDirsOnly] = useState<boolean>(true)
   const [roots, setRoots] = useState<{ name: string; path: string; is_dir: boolean }[]>([])
   const [selectedRoot, setSelectedRoot] = useState<string>('')
+  const [newDirName, setNewDirName] = useState<string>('')
+  const [showMkdir, setShowMkdir] = useState<boolean>(false)
 
   const canCreate = useMemo(() => {
     if (!form.path || !form.stride || form.stride < 1) return false
@@ -114,8 +120,9 @@ export default function CreateTask() {
           <div>
             <label>Data Type</label>
             <select className="input" value={form.data_type} onChange={e => setForm({ ...form, data_type: e.target.value as any })}>
-              <option value="surf">surf</option>
-              <option value="valeo">valeo</option>
+              <option value="surf">SURF</option>
+              <option value="valeo">Valeo</option>
+              <option value="aclm">ACLM</option>
             </select>
           </div>
           <div className="md:col-span-2">
@@ -169,27 +176,59 @@ export default function CreateTask() {
         </section>
       )}
 
-      {/* Overlay options */}
-      <section className="mt-4 card">
-        <div className="mb-3 text-sm text-neutral-400">Overlay</div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="md:col-span-1 flex items-center">
-            <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.overlay_intensity} onChange={e => setForm({ ...form, overlay_intensity: e.target.checked })} /> Intensity coloring</label>
+      {/* ACLM Raw Conversion Options */}
+      {form.data_type === 'aclm' && (
+        <section className="mt-4 card">
+          <div className="mb-3 text-sm text-neutral-400">ACLM Raw Conversion</div>
+          <div className="flex items-center gap-3 mb-4">
+            <label className="inline-flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={!!form.convert_raw_to_jpg} onChange={e => setForm({ ...form, convert_raw_to_jpg: e.target.checked })} />
+              Convert .raw to .jpg
+            </label>
+            <span className="text-xs text-neutral-500">(Raw files need ISP processing for visualization)</span>
           </div>
-          <div>
-            <label>Every Nth pair (0=off)</label>
-            <input className="input" type="number" min={0} value={form.overlay_every ?? 0} onChange={e => setForm({ ...form, overlay_every: Number(e.target.value) })} />
+
+          {form.convert_raw_to_jpg && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label>Output Format</label>
+                <select className="input" value={form.raw_output_format ?? 'gray'} onChange={e => setForm({ ...form, raw_output_format: e.target.value as 'gray' | 'rgb' })}>
+                  <option value="gray">Grayscale</option>
+                  <option value="rgb">RGB</option>
+                </select>
+              </div>
+              <div>
+                <label>Digital Gain (RGB only)</label>
+                <input className="input" type="number" min={0.1} max={10} step={0.1} value={form.raw_dgain ?? 1.5} onChange={e => setForm({ ...form, raw_dgain: Number(e.target.value) })} disabled={form.raw_output_format === 'gray'} />
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Overlay options - Show for SURF/Valeo OR ACLM with conversion enabled */}
+      {(form.data_type !== 'aclm' || (form.data_type === 'aclm' && form.convert_raw_to_jpg)) && (
+        <section className="mt-4 card">
+          <div className="mb-3 text-sm text-neutral-400">Overlay</div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="md:col-span-1 flex items-center">
+              <label className="inline-flex items-center gap-2 text-sm"><input type="checkbox" checked={!!form.overlay_intensity} onChange={e => setForm({ ...form, overlay_intensity: e.target.checked })} /> Intensity coloring</label>
+            </div>
+            <div>
+              <label>Every Nth pair (0=off)</label>
+              <input className="input" type="number" min={0} value={form.overlay_every ?? 0} onChange={e => setForm({ ...form, overlay_every: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Point radius</label>
+              <input className="input" type="number" min={1} value={form.overlay_point_radius ?? 2} onChange={e => setForm({ ...form, overlay_point_radius: Number(e.target.value) })} />
+            </div>
+            <div>
+              <label>Alpha</label>
+              <input className="input" type="number" min={0} max={1} step={0.1} value={form.overlay_alpha ?? 1} onChange={e => setForm({ ...form, overlay_alpha: Number(e.target.value) })} />
+            </div>
           </div>
-          <div>
-            <label>Point radius</label>
-            <input className="input" type="number" min={1} value={form.overlay_point_radius ?? 2} onChange={e => setForm({ ...form, overlay_point_radius: Number(e.target.value) })} />
-          </div>
-          <div>
-            <label>Alpha</label>
-            <input className="input" type="number" min={0} max={1} step={0.1} value={form.overlay_alpha ?? 1} onChange={e => setForm({ ...form, overlay_alpha: Number(e.target.value) })} />
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* Packaging */}
       <section className="mt-4 card">
@@ -225,13 +264,19 @@ export default function CreateTask() {
               </div>
             </div>
 
-            <div className="py-3 border-b border-neutral-800 flex items-center gap-3">
-              <select className="input w-auto" value={selectedRoot} onChange={e => { setSelectedRoot(e.target.value); navTo(e.target.value) }}>
-                {roots.map(r => (
-                  <option key={r.path} value={r.path}>{r.path}</option>
-                ))}
-              </select>
-              <div className="text-sm text-neutral-400 truncate">{browserCwd}</div>
+            <div className="py-3 border-b border-neutral-800 flex flex-col gap-2">
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-neutral-500 shrink-0">Root:</label>
+                <select className="input w-auto flex-1" value={selectedRoot} onChange={e => { setSelectedRoot(e.target.value); navTo(e.target.value) }}>
+                  {roots.map(r => (
+                    <option key={r.path} value={r.path}>{r.path}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-neutral-500 shrink-0">Current:</label>
+                <div className="text-sm text-neutral-300 font-mono break-all">{browserCwd}</div>
+              </div>
             </div>
 
             <div className="py-3 flex items-center justify-between border-b border-neutral-800">
