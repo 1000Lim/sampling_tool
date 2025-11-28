@@ -6,6 +6,8 @@ import shutil
 import cv2
 from tqdm import tqdm
 from loguru import logger
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List
 
 from parser.cam_info_parser import get_calib_from_cam_info_dict
 from util.aclm_util import get_aclm_sampling_required_files
@@ -22,6 +24,84 @@ from dto.sample_frame import write_sample_frames_to_csv, SAMPLE_CSV_NAME
 from util.compress_util import compress_lidar_and_images
 from util.raw_converter import AclmRawConverter, RawOutputFormat
 from util.draw_util import draw_projected_lidar_point_cloud_to_camera_image
+
+
+def _convert_single_raw_file(raw_filename: str, export: str, converter: AclmRawConverter) -> tuple[str, bool, str]:
+    """
+    Convert a single raw file to JPG.
+
+    Returns:
+        tuple: (filename, success, error_message)
+    """
+    try:
+        raw_path = os.path.join(export, 'raw', os.path.basename(raw_filename))
+        if not os.path.exists(raw_path):
+            return (raw_filename, False, f"Raw file not found: {raw_path}")
+
+        # Read raw data
+        with open(raw_path, 'rb') as f:
+            raw_data = f.read()
+
+        # Convert to JPG
+        jpg_data = converter.convert_raw_to_jpg_bytes(raw_data)
+
+        # Save to images/
+        base_name = os.path.splitext(os.path.basename(raw_filename))[0]
+        jpg_path = os.path.join(export, 'images', f"{base_name}.jpg")
+        with open(jpg_path, 'wb') as f:
+            f.write(jpg_data)
+
+        return (raw_filename, True, "")
+    except Exception as e:
+        return (raw_filename, False, str(e))
+
+
+def _convert_raw_to_jpg_multithreaded(
+    raw_files: List[str],
+    export: str,
+    raw_output_format: str,
+    raw_dgain: float,
+    num_workers: int
+) -> None:
+    """
+    Convert raw files to JPG using multithreading.
+
+    Args:
+        raw_files: List of raw filenames to convert
+        export: Export directory
+        raw_output_format: Output format ('gray' or 'rgb')
+        raw_dgain: Digital gain for RGB conversion
+        num_workers: Number of worker threads
+    """
+    if not raw_files:
+        return
+
+    output_fmt = RawOutputFormat.RGB if raw_output_format.lower() == 'rgb' else RawOutputFormat.GRAY
+
+    # Each worker thread gets its own converter instance (thread-safe)
+    def convert_with_own_converter(raw_filename):
+        converter = AclmRawConverter(output_format=output_fmt, dgain=raw_dgain)
+        return _convert_single_raw_file(raw_filename, export, converter)
+
+    success_count = 0
+    error_count = 0
+
+    with ThreadPoolExecutor(max_workers=num_workers) as executor:
+        # Submit all tasks
+        futures = {executor.submit(convert_with_own_converter, f): f for f in raw_files}
+
+        # Process results with progress bar
+        with tqdm(total=len(raw_files), desc='Converting RAW to JPG', unit='file') as pbar:
+            for future in as_completed(futures):
+                filename, success, error_msg = future.result()
+                if success:
+                    success_count += 1
+                else:
+                    error_count += 1
+                    logger.error(f"Failed to convert {filename}: {error_msg}")
+                pbar.update(1)
+
+    logger.info(f"RAW to JPG conversion completed: {success_count} succeeded, {error_count} failed")
 
 
 def _extract_raw_images_from_tar_by_indices(image_tar_path: str, frame_indices: list[int], result_dir: str):
@@ -86,7 +166,8 @@ def _rename_lidar_using_sample_frames(generated_images: list[str], sample_frames
 def run_aclm_pipeline(rawdata_set: list[str], export: str, compress: bool, remove: bool, stride: int,
                       overlay_every: int = 0, overlay_intensity: bool = False, overlay_point_radius: int = 2,
                       overlay_alpha: float = 1.0, skip_head: int = 0, skip_tail: int = 0,
-                      convert_raw_to_jpg: bool = False, raw_output_format: str = 'gray', raw_dgain: float = 1.5):
+                      convert_raw_to_jpg: bool = False, raw_output_format: str = 'gray', raw_dgain: float = 1.5,
+                      enable_multithreading: bool = False, num_workers: int = 10):
     """
     Run ACLM sampling pipeline.
 
@@ -108,6 +189,8 @@ def run_aclm_pipeline(rawdata_set: list[str], export: str, compress: bool, remov
         convert_raw_to_jpg: Convert .raw files to .jpg (default: False)
         raw_output_format: Output format for conversion - 'gray' or 'rgb' (default: 'gray')
         raw_dgain: Digital gain for RGB conversion (default: 1.5)
+        enable_multithreading: Enable multithreading for raw conversion (default: False)
+        num_workers: Number of worker threads for multithreading (default: 10)
     """
     os.makedirs(export, exist_ok=True)
     os.makedirs(os.path.join(export, 'lidar'), exist_ok=True)
@@ -172,26 +255,33 @@ def run_aclm_pipeline(rawdata_set: list[str], export: str, compress: bool, remov
                     # Optional: Convert .raw to .jpg
                     if convert_raw_to_jpg:
                         try:
-                            output_fmt = RawOutputFormat.RGB if raw_output_format.lower() == 'rgb' else RawOutputFormat.GRAY
-                            converter = AclmRawConverter(output_format=output_fmt, dgain=raw_dgain)
+                            if enable_multithreading:
+                                # Multithreaded conversion
+                                _convert_raw_to_jpg_multithreaded(
+                                    generated_raw_files, export, raw_output_format, raw_dgain, num_workers
+                                )
+                            else:
+                                # Single-threaded conversion (original)
+                                output_fmt = RawOutputFormat.RGB if raw_output_format.lower() == 'rgb' else RawOutputFormat.GRAY
+                                converter = AclmRawConverter(output_format=output_fmt, dgain=raw_dgain)
 
-                            for raw_filename in generated_raw_files:
-                                raw_path = os.path.join(export, 'raw', os.path.basename(raw_filename))
-                                if not os.path.exists(raw_path):
-                                    continue
+                                for raw_filename in generated_raw_files:
+                                    raw_path = os.path.join(export, 'raw', os.path.basename(raw_filename))
+                                    if not os.path.exists(raw_path):
+                                        continue
 
-                                # Read raw data
-                                with open(raw_path, 'rb') as f:
-                                    raw_data = f.read()
+                                    # Read raw data
+                                    with open(raw_path, 'rb') as f:
+                                        raw_data = f.read()
 
-                                # Convert to JPG
-                                jpg_data = converter.convert_raw_to_jpg_bytes(raw_data)
+                                    # Convert to JPG
+                                    jpg_data = converter.convert_raw_to_jpg_bytes(raw_data)
 
-                                # Save to images/
-                                base_name = os.path.splitext(os.path.basename(raw_filename))[0]
-                                jpg_path = os.path.join(export, 'images', f"{base_name}.jpg")
-                                with open(jpg_path, 'wb') as f:
-                                    f.write(jpg_data)
+                                    # Save to images/
+                                    base_name = os.path.splitext(os.path.basename(raw_filename))[0]
+                                    jpg_path = os.path.join(export, 'images', f"{base_name}.jpg")
+                                    with open(jpg_path, 'wb') as f:
+                                        f.write(jpg_data)
 
                         except ImportError as e:
                             logger.error(f"Failed to convert raw to jpg: {e}")

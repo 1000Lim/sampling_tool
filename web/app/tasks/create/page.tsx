@@ -22,13 +22,15 @@ type RunRequest = {
   convert_raw_to_jpg?: boolean
   raw_output_format?: 'gray' | 'rgb'
   raw_dgain?: number
+  enable_multithreading?: boolean
+  num_workers?: number
 }
 
 export default function CreateTask() {
   const router = useRouter()
   const [form, setForm] = useState<RunRequest>({
     path: '', data_type: 'valeo', stride: 10, overlay_every: 0, overlay_intensity: true, overlay_point_radius: 2, overlay_alpha: 1,
-    convert_raw_to_jpg: false, raw_output_format: 'gray', raw_dgain: 1.5
+    convert_raw_to_jpg: false, raw_output_format: 'gray', raw_dgain: 1.5, enable_multithreading: false, num_workers: 10
   })
   const [status, setStatus] = useState<string>('')
   const [jobId, setJobId] = useState<string>('')
@@ -189,19 +191,40 @@ export default function CreateTask() {
           </div>
 
           {form.convert_raw_to_jpg && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label>Output Format</label>
-                <select className="input" value={form.raw_output_format ?? 'gray'} onChange={e => setForm({ ...form, raw_output_format: e.target.value as 'gray' | 'rgb' })}>
-                  <option value="gray">Grayscale</option>
-                  <option value="rgb">RGB</option>
-                </select>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label>Output Format</label>
+                  <select className="input" value={form.raw_output_format ?? 'gray'} onChange={e => setForm({ ...form, raw_output_format: e.target.value as 'gray' | 'rgb' })}>
+                    <option value="gray">Grayscale</option>
+                    <option value="rgb">RGB</option>
+                  </select>
+                </div>
+                <div>
+                  <label>Digital Gain (RGB only)</label>
+                  <input className="input" type="number" min={0.1} max={10} step={0.1} value={form.raw_dgain ?? 1.5} onChange={e => setForm({ ...form, raw_dgain: Number(e.target.value) })} disabled={form.raw_output_format === 'gray'} />
+                </div>
               </div>
-              <div>
-                <label>Digital Gain (RGB only)</label>
-                <input className="input" type="number" min={0.1} max={10} step={0.1} value={form.raw_dgain ?? 1.5} onChange={e => setForm({ ...form, raw_dgain: Number(e.target.value) })} disabled={form.raw_output_format === 'gray'} />
+
+              <div className="mt-4 p-3 bg-neutral-800 rounded-lg border border-neutral-700">
+                <div className="flex items-center gap-3 mb-3">
+                  <label className="inline-flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={!!form.enable_multithreading} onChange={e => setForm({ ...form, enable_multithreading: e.target.checked })} />
+                    Enable Multithreading
+                  </label>
+                  <span className="text-xs text-neutral-500">(Faster conversion using multiple CPU cores)</span>
+                </div>
+                {form.enable_multithreading && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label>Number of Workers</label>
+                      <input className="input" type="number" min={1} max={30} value={form.num_workers ?? 10} onChange={e => setForm({ ...form, num_workers: Number(e.target.value) })} />
+                      <span className="text-xs text-neutral-500 mt-1 block">1-30 threads (default: 10)</span>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            </>
           )}
         </section>
       )}

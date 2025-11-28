@@ -33,6 +33,8 @@ class RunRequest(BaseModel):
     convert_raw_to_jpg: bool = Field(False, description="ACLM only: convert .raw to .jpg")
     raw_output_format: str = Field('gray', description="ACLM only: raw conversion format (gray or rgb)")
     raw_dgain: float = Field(1.5, ge=0.1, le=10.0, description="ACLM only: digital gain for RGB conversion")
+    enable_multithreading: bool = Field(False, description="ACLM only: enable multithreading for raw conversion")
+    num_workers: int = Field(10, ge=1, le=30, description="ACLM only: number of worker threads (default: 10)")
 
 
 class JobStatus(BaseModel):
@@ -203,6 +205,8 @@ def _run_job(job_id: str, req: RunRequest):
             convert_raw_to_jpg=req.convert_raw_to_jpg,
             raw_output_format=req.raw_output_format,
             raw_dgain=req.raw_dgain,
+            enable_multithreading=req.enable_multithreading,
+            num_workers=req.num_workers,
         )
         job.status = "completed"
         job.finished_at = time.time()

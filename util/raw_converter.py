@@ -1,6 +1,10 @@
 """
 Raw image converter utility for ACLM data.
-Extracted from surf_raw_image_converter_ui.py for ACLM RAW14 conversion.
+Extracted from surf_raw_image_converter_ui.py v1.10 for ACLM RAW14 conversion.
+
+Version: v1.10
+Changes from v1.8:
+  - Updated ACLM crop region: CROP_TOP changed from 6 to 4
 """
 import io
 import numpy as np
@@ -191,13 +195,13 @@ class RawImageProcessor:
 class AclmRawConverter:
     """ACLM RAW14 to JPG converter"""
 
-    # ACLM RAW14 specs
+    # ACLM RAW14 specs (v1.10)
     WIDTH = 3848
     HEIGHT = 2172
     STRIDE = 6734
     TARGET_WIDTH = 3840
     TARGET_HEIGHT = 2160
-    CROP_TOP = 6
+    CROP_TOP = 4  # v1.10: updated from 6 to 4
     CROP_LEFT = 4
     BLACK_LEVEL = 256
     WHITE_LEVEL = 16383

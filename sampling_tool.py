@@ -41,6 +41,8 @@ def main(
     convert_raw_to_jpg: bool,
     raw_output_format: str,
     raw_dgain: float,
+    enable_multithreading: bool = False,
+    num_workers: int = 10,
 ):
     if not work_path or not os.path.isdir(work_path):
         logger.error("Error: Please input the correct path.")
@@ -77,7 +79,7 @@ def main(
     elif data_type_enum == DataType.VALEO:
         run_valeo_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail)
     elif data_type_enum == DataType.ACLM:
-        run_aclm_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail, convert_raw_to_jpg=convert_raw_to_jpg, raw_output_format=raw_output_format, raw_dgain=raw_dgain)
+        run_aclm_pipeline(rawdata_set, export, compress, remove, stride, overlay_every, overlay_intensity, overlay_point_radius, overlay_alpha, skip_head=skip_head, skip_tail=skip_tail, convert_raw_to_jpg=convert_raw_to_jpg, raw_output_format=raw_output_format, raw_dgain=raw_dgain, enable_multithreading=enable_multithreading, num_workers=num_workers)
 
 
 
@@ -105,6 +107,8 @@ def run(
     convert_raw_to_jpg: bool = typer.Option(False, "--convert-raw", help='Convert .raw to .jpg (ACLM only).'),
     raw_output_format: str = typer.Option('gray', "--raw-format", help='Raw conversion format: gray or rgb (ACLM only).'),
     raw_dgain: float = typer.Option(1.5, "--raw-dgain", help='Digital gain for RGB conversion (ACLM only).'),
+    enable_multithreading: bool = typer.Option(False, "--enable-multithreading", help='Enable multithreading for raw conversion (ACLM only).'),
+    num_workers: int = typer.Option(10, "--num-workers", help='Number of worker threads for multithreading (1-30, ACLM only).'),
 ):
     main(
         stride=stride,
@@ -124,6 +128,8 @@ def run(
         convert_raw_to_jpg=convert_raw_to_jpg,
         raw_output_format=raw_output_format,
         raw_dgain=raw_dgain,
+        enable_multithreading=enable_multithreading,
+        num_workers=num_workers,
     )
 
 
